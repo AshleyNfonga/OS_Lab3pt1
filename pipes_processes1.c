@@ -1,58 +1,88 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <string.h>
+// C program to demonstrate use of fork() and pipe() 
+#include<stdio.h> 
+#include<stdlib.h> 
+#include<unistd.h> 
+#include<sys/types.h> 
+#include<string.h> 
+#include<sys/wait.h> 
+  
+int main() 
+{ 
+    // We use two pipes 
+    // First pipe to send input string from parent 
+    // Second pipe to send concatenated string from child 
+  
+    int fd1[2];  // Used to store two ends of first pipe 
+    int fd2[2];  // Used to store two ends of second pipe 
+  
+    char fixed_str[] = "howard.edu"; 
+    char input_str[100]; 
+    pid_t p; 
+  
+    if (pipe(fd1)==-1) 
+    { 
+        fprintf(stderr, "Pipe Failed" ); 
+        return 1; 
+    } 
+    if (pipe(fd2)==-1) 
+    { 
+        fprintf(stderr, "Pipe Failed" ); 
+        return 1; 
+    } 
+  
+    printf("Enter a string to concatenate:");
+    scanf("%s", input_str); 
+    p = fork(); 
+  
+    if (p < 0) 
+    { 
+        fprintf(stderr, "fork Failed" ); 
+        return 1; 
+    } 
+  
+    // Parent process 
+    else if (p > 0) 
+    { 
+  
+        close(fd1[0]);  // Close reading end of pipes 
+        close(fd2[0]);
+  
+        // Write input string and close writing end of first 
+        // pipe. 
+        write(fd1[1], input_str, strlen(input_str)+1); 
+        
+  
+        // Wait for child to print the concatenated string 
+        wait(NULL); 
+  
+        close(fd2[1]); // Close writing end of pipes 
+        close(fd1[1]); 
+    } 
+  
+    // child process 
+    else
+    { 
+        close(fd1[1]);  // Close writing end of first pipes 
+        close(fd2[1]); 
+      
+        // Read a string using first pipe 
+        char concat_str[100]; 
+        read(fd1[0], concat_str, 100); 
+  
+        // Concatenate a fixed string with it 
+        int k = strlen(concat_str); 
+        int i; 
+        for (i=0; i<strlen(fixed_str); i++) 
+            concat_str[k++] = fixed_str[i]; 
+  
+        concat_str[k] = '\0';   // string ends with '\0' 
+  
+        printf("Concatenated string %s\n", concat_str);
+        // Close both reading ends 
+        close(fd1[0]); 
+        close(fd2[0]); 
 
-#define BUFFER_SIZE 100
-
-int main() {
-    int fd[2];                         // fd[0] = read end, fd[1] = write end
-    pid_t pid;
-    char writeMsg[BUFFER_SIZE];
-    char readMsg[BUFFER_SIZE];
-
-    // Create the pipe before forking
-    if (pipe(fd) == -1) {
-        perror("Pipe creation failed");
-        exit(1);
-    }
-
-    pid = fork();                      // Create a new process
-
-    if (pid < 0) {
-        perror("Fork failed");
-        exit(1);
-    }
-
-    if (pid == 0) {
-        /*************** CHILD PROCESS ***************/
-        // Child only reads from the pipe, so close the write end
-        close(fd[1]);
-
-        // Read the message sent by the parent
-        read(fd[0], readMsg, sizeof(readMsg));
-        printf("Child received: %s\n", readMsg);
-
-        // Close the read end after use
-        close(fd[0]);
-    }
-    else {
-        /*************** PARENT PROCESS ***************/
-        // Parent only writes to the pipe, so close the read end
-        close(fd[0]);
-
-        printf("Input : ");
-        fgets(writeMsg, sizeof(writeMsg), stdin);
-
-        // Remove newline added by fgets
-        writeMsg[strcspn(writeMsg, "\n")] = '\0';
-
-        // Send message to the child
-        write(fd[1], writeMsg, strlen(writeMsg) + 1);
-
-        // Close the write end after sending
-        close(fd[1]);
-    }
-
-    return 0;
-}
+  
+        exit(0); 
+    } 
+} 

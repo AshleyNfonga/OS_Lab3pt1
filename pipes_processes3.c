@@ -1,92 +1,66 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <unistd.h>
+#include <sys/types.h>
 #include <sys/wait.h>
 
-#define BUF_SIZE 512
+int main(int argc, char *argv[]) {
+if (argc != 2) {
+fprintf(stderr, "Usage: %s <grep-argument>\n", argv[0]);
+exit(1);
+}
 
-int main() {
-    int to_child[2];   // Parent -> Child pipe
-    int to_parent[2];  // Child -> Parent pipe
-    pid_t pid;
-    char input1[BUF_SIZE];
-    char input2[BUF_SIZE];
-    char child_out[BUF_SIZE];
-    char final_out[BUF_SIZE];
 
-    // Create both pipes
-    if (pipe(to_child) == -1) { perror("pipe to_child failed"); exit(1); }
-    if (pipe(to_parent) == -1) { perror("pipe to_parent failed"); exit(1); }
+int pipe1[2]; // pipe: cat -> grep
+int pipe2[2]; // pipe: grep -> sort
 
-    pid = fork();
-    if (pid < 0) { perror("fork failed"); exit(1); }
+if (pipe(pipe1) == -1) { perror("pipe1"); exit(1); }
+if (pipe(pipe2) == -1) { perror("pipe2"); exit(1); }
 
-    if (pid == 0) {
-        /************** CHILD PROCESS **************/
-        close(to_child[1]);  // Close write end of parent->child
-        close(to_parent[0]); // Close read end of child->parent
+// First child: executes grep
+pid_t pid1 = fork();
+if (pid1 < 0) { perror("fork pid1"); exit(1); }
 
-        // Read string from parent
-        read(to_child[0], child_out, BUF_SIZE);
+if (pid1 == 0) {
+    // Child process: grep
+    if (close(pipe1[1]) == -1) { perror("close pipe1 write"); exit(1); }
+    if (dup2(pipe1[0], STDIN_FILENO) == -1) { perror("dup2 pipe1 read"); exit(1); }
+    if (close(pipe1[0]) == -1) { perror("close pipe1 read"); exit(1); }
 
-        // Concatenate "howard.edu"
-        strncat(child_out, "howard.edu", BUF_SIZE - strlen(child_out) - 1);
+    if (close(pipe2[0]) == -1) { perror("close pipe2 read"); exit(1); }
+    if (dup2(pipe2[1], STDOUT_FILENO) == -1) { perror("dup2 pipe2 write"); exit(1); }
+    if (close(pipe2[1]) == -1) { perror("close pipe2 write"); exit(1); }
 
-        // Print first child output as in assignment
-        printf("Other string is: howard.edu\n");
-        printf("Output : %s\n", child_out);
-        fflush(stdout);
+    execlp("grep", "grep", argv[1], NULL);
+    perror("execlp grep");
+    exit(1);
+}
 
-        // Prompt for second input
-        printf("Input : ");
-        fflush(stdout);
-        if (fgets(input2, BUF_SIZE, stdin) != NULL) {
-            input2[strcspn(input2, "\n")] = '\0'; // Remove newline
-        } else {
-            input2[0] = '\0';
-        }
+// Second child: executes sort
+pid_t pid2 = fork();
+if (pid2 < 0) { perror("fork pid2"); exit(1); }
 
-        // Append second input to child_out
-        strncat(child_out, input2, BUF_SIZE - strlen(child_out) - 1);
+if (pid2 == 0) {
+    // Child process: sort
+    if (close(pipe1[0]) == -1 || close(pipe1[1]) == -1) { perror("close pipe1"); exit(1); }
+    if (close(pipe2[1]) == -1) { perror("close pipe2 write"); exit(1); }
+    if (dup2(pipe2[0], STDIN_FILENO) == -1) { perror("dup2 pipe2 read"); exit(1); }
+    if (close(pipe2[0]) == -1) { perror("close pipe2 read"); exit(1); }
 
-        // Send the concatenated string back to parent
-        write(to_parent[1], child_out, strlen(child_out) + 1);
+    execlp("sort", "sort", NULL);
+    perror("execlp sort");
+    exit(1);
+}
 
-        // Close pipes
-        close(to_child[0]);
-        close(to_parent[1]);
-        exit(0);
-    } else {
-        /************** PARENT PROCESS **************/
-        close(to_child[0]);  // Close read end of parent->child
-        close(to_parent[1]); // Close write end of child->parent
+// Parent process: executes cat
+if (close(pipe1[0]) == -1) { perror("close pipe1 read"); exit(1); }
+if (close(pipe2[0]) == -1 || close(pipe2[1]) == -1) { perror("close pipe2"); exit(1); }
+if (dup2(pipe1[1], STDOUT_FILENO) == -1) { perror("dup2 pipe1 write"); exit(1); }
+if (close(pipe1[1]) == -1) { perror("close pipe1 write"); exit(1); }
 
-        // Read first input from user
-        printf("Input : ");
-        fflush(stdout);
-        if (fgets(input1, BUF_SIZE, stdin) != NULL) {
-            input1[strcspn(input1, "\n")] = '\0'; // Remove newline
-        } else {
-            input1[0] = '\0';
-        }
+execlp("cat", "cat", "scores", NULL);
+perror("execlp cat");
+exit(1);
 
-        // Send input to child
-        write(to_child[1], input1, strlen(input1) + 1);
 
-        // Read concatenated string from child
-        read(to_parent[0], final_out, BUF_SIZE);
-
-        // Parent appends "gobison.org" and prints final output
-        strncat(final_out, "gobison.org", BUF_SIZE - strlen(final_out) - 1);
-        printf("Output : %s\n", final_out);
-
-        // Close pipes
-        close(to_child[1]);
-        close(to_parent[0]);
-
-        wait(NULL); // Wait for child to finish
-    }
-
-    return 0;
 }
